@@ -1,4 +1,4 @@
-# behabior-audit
+# behavior-audit
 
 Provides a way to audit behavior information for properties via Open APIs and without manually having to go into the Luna Portal.
 

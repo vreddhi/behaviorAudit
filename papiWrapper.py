@@ -24,6 +24,20 @@ class papi(object):
         "Content-Type": "application/json"
     }
 
+    def getSchema(self, session, productId):
+        get_schema_url = 'https://' + self.access_hostname + '/papi/v1/schemas/products/' + str(productId) + '/latest'
+
+        if '?' in get_schema_url:
+            get_schema_url = get_schema_url + self.account_switch_key
+        else:
+            #Replace & with ? if there is no query string in URL and DO NOT override object property account_switch_key
+            account_switch_key = self.account_switch_key.translate(self.account_switch_key.maketrans('&','?'))
+            get_schema_url = get_schema_url + account_switch_key
+        schema_response = session.get(get_schema_url)
+
+        return schema_response     
+
+
     def createProperty(self, session, contractId, groupId, productId, property_name):
         """
         Function to create property

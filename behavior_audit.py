@@ -23,7 +23,6 @@ import json
 import logging
 import os
 import requests
-import shutil
 import sys
 from jsonschema import validate
 import jsonschema
@@ -127,12 +126,13 @@ def cli():
 
     actions["audit"] = create_sub_command(
         subparsers, "audit", "Audit for beahviors in a group/contract",
-        [{"name": "behavior", "help": "Name of behavior to audit"}],
-        [])
+        [{"name": "contractId", "help": "ContractID to be used in API calls"},
+         {"name": "productId", "help": "productId to be used in API calls"}],
+        [{"name": "behavior", "help": "Name of behavior to audit"}])
 
     actions["list"] = create_sub_command(
         subparsers, "list", "Lists all behaviors",
-        [],
+        [{"name": "productId", "help": "productId to be used in API calls"}],
         [])
 
     args = parser.parse_args()
@@ -205,136 +205,260 @@ def create_sub_command(
 
     return action
 
-
-#behavior_list=[args.behavior]
-
-counter = 0
-
-#Function to intelligently loop any behavior within Akamai property JSON
-#Depending on the dataType we decide substitutions
-def updateBehaviorValues(behavior, var_name, var_value, file_name):
-    global counter
-    for eachKey in behavior.keys():
-        if isinstance(behavior[eachKey],dict):
-            updateBehaviorValues(behavior[eachKey], var_name, var_value, file_name)
-        elif isinstance(behavior[eachKey],list):
-            var_value_list = var_value.split(',')
-            if var_value_list == behavior[eachKey]:
-                counter += 1
-                print(str(counter) + '. Replacing ' + behavior[eachKey][-1] + ' with : ' + var_name + ' in ' + file_name)
-                behavior[eachKey] = "${env." + var_name + "}"
-        elif str(behavior[eachKey]) == str(var_value):
-            print(var_value)
-            counter += 1
-            print(str(counter) + '. Replacing ' + str(behavior[eachKey]) + ' with : ' + var_name + ' in ' + file_name)
-            behavior[eachKey] = "${env." + var_name + "}"
-    return behavior
+product_list = ['prd_SPM']
+options_to_be_removed = ['uuid','templateUuid','locked','options']
+path = []
+title_line_list = []
 
 #Function to recursively parse the rules
-def getChildRulesandUpdate(parentRule, var_name, var_value, file_name):
+def doAuditBehavior(parentRule, behavior, propertyName, version):
+    file_name = behavior + '_Audit.csv'
     for eachRule in parentRule:
+        rule_name = eachRule['name']
         for eachbehavior in eachRule['behaviors']:
-            if eachbehavior['name'] in behavior_list:
-                eachbehavior = updateBehaviorValues(eachbehavior, var_name, var_value, file_name)
+            if eachbehavior['name'] in behavior:
+                #print(json.dumps(eachbehavior, indent=4))
+                for eachTitle in title_line_list:
+                    if '.' in eachTitle:
+                        features_location = eachTitle.split('.')
+                        feature = eachbehavior['options']
+                        for eachSeparator in features_location[0:]:
+                            feature = feature[eachSeparator]
+                    else:
+                        try:
+                            feature = eachbehavior['options'][eachTitle]
+                        except KeyError:
+                            feature = ''
+
+                    if 'row_value' not in locals():
+                        row_value = str(feature)
+                    else:
+                        row_value = row_value + ',' + str(feature)
+                #write the content to file
+                row_value = propertyName + ',' + str(version) + ',' + rule_name + ',' + row_value
+                with open(file_name,'a') as audit_file:
+                    audit_file.write(row_value+'\n')
+
+            else:
+                #Behavior did not match
+                pass
 
         #Check whether we have child rules, where in again behavior might be found
         if len(eachRule['children']) != 0:
-            getChildRulesandUpdate(eachRule['children'], var_name, var_value, file_name)
-    #Awesome, we are done updating behaviors, lets go back
-    return parentRule
+            doAuditBehavior(eachRule['children'], behavior, propertyName, version)
 
 
-#Start from default values
-default_value = True
-title_line = True
+def computeAllBehaviorOptions(schema_response, behaviorData,final_obj):
+    if 'type' in behaviorData and behaviorData['type'] == 'object':
+        if 'properties' in behaviorData:
+            for eachKey in behaviorData['properties'].keys():
+                computeAllBehaviorOptions(schema_response, behaviorData['properties'][eachKey],final_obj)
+                if '$ref' in behaviorData['properties'][eachKey].keys():
+                    features_location = behaviorData['properties'][eachKey]['$ref'].split('/')
+                    dict_location = schema_response
+                    for eachSeparator in features_location[1:]:
+                        dict_location = dict_location[eachSeparator]
+                    final_obj[eachKey] = {}
+                    computeAllBehaviorOptions(schema_response, dict_location, final_obj[eachKey])
+                else:
+                    if eachKey not in options_to_be_removed:
+                        final_obj[eachKey] = ''
+    return final_obj
+
+
+def walk(d):
+    #Function to parse the computed behavior from schema
+    global path
+    for k,v in d.items():
+      if isinstance(v, str) or isinstance(v, int) or isinstance(v, float):
+        path.append(k)
+        #print("{}={}".format(".".join(path), v))
+        title_line_list.append(str("{}={}".format(".".join(path), v)).strip('='))
+        path.pop()
+      elif v is None:
+        path.append(k)
+        ## do something special
+        path.pop()
+      elif isinstance(v, dict):
+          if len(v.keys()) > 0:
+              path.append(k)
+              walk(v)
+              path.pop()
+          else:
+              path.append(k)
+              #print("{}={}".format(".".join(path), v))
+              title_line_list.append(str("{}={}".format(".".join(path), v)).strip('{}').strip('='))
+              path.pop()
+      else:
+        print("###Type {} not recognized: {}.{}={}".format(type(v), ".".join(path),k, v))
+
+
+
 
 def audit(args):
     access_hostname, session = init_config(args.edgerc, args.section)
     account_switch_key = args.account_key
     behavior =  args.behavior
+
+    if args.productId:
+        productId =  args.productId
+        if productId not in product_list:
+            print('--productId should be one of: ' + str(product_list))
+            exit(-1)
+        else:
+            #valid product
+            pass
+    else:
+        print('--productId is mandatory and should be one of ' + str(product_list))
+        exit(-1)
+
+    with open('/Users/vbhat/Desktop/schema.json','r') as file_reader:
+        schema_response = json.load(file_reader)
+
+    try:
+        behavior_properties = schema_response['definitions']['catalog']['behaviors'][behavior]
+        final_obj = {}
+        result_behavior = computeAllBehaviorOptions(schema_response, behavior_properties, final_obj)
+        #print(json.dumps(result_behavior, indent=4))
+        walk(result_behavior)
+
+        title_line = 'Property_Name, PROD_Version, Rule_name'
+        for eachColumn in title_line_list:
+            title_line = title_line + ',' + eachColumn
+
+        file_name = behavior + '_Audit.csv'
+        with open(file_name,'w') as audit_file:
+            audit_file.write(title_line+'\n')
+
+    except KeyError:
+        print('Schema for ' + behavior + ' is not found')
+
     papiObject = papiWrapper.papi(access_hostname, account_switch_key)
-    schema_response = papiObject.getSchema(session, productId='prd_SPM')
-    #print(json.dumps(schema_response.json(), indent=4))
-    behavior =  args.behavior
+    schema_response = papiObject.getSchema(session, productId=productId)
 
     if schema_response.status_code == 200:
-        behavior_properties = schema_response.json()['definitions']['catalog']['behaviors'][behavior]['properties']['options']['properties']
+        try:
+            behavior_properties = schema_response.json()['definitions']['catalog']['behaviors'][behavior]['properties']['options']['properties']
+        except KeyError:
+            print(behavior + ' not found in Schema response.')
+            exit(-1)
+    else:
+        print('Unable to get schema for the product')
+        exit(-1)
 
-    for each_name in behavior_properties.keys():
-        #print(each_name)
-        if 'column_name' not in locals():
-            column_name = each_name
+
+    if args.contractId:
+        contractId = args.contractId
+    else:
+        #Get all the properties of a contract
+        contract_response = papiObject.getContracts(session)
+        if contract_response.status_code == 200:
+            if len(contract_response.json()['contracts']['items']) > 1:
+                print('More than one contracts found. Please use --contractId <contractID>')
+                print('\nAvailable contractIDs are:')
+                counter = 0
+                for eachContract in contract_response.json()['contracts']['items']:
+                    counter += 1
+                    print(str(counter) + '. ' + eachContract['contractId'])
+                exit(-1)
+            else:
+                contractId = contract_response.json()['contracts']['items'][0]['contractId']
         else:
-            column_name = column_name + ',' + each_name
+            print('Unable to fetch contracts information')
 
-    print(column_name)
+    #Get all the properties of a contract
+    group_response = papiObject.getGroups(session)
+    if group_response.status_code == 200:
+        #Constitute an array of groupIds for the contract
+        groupIdList = []
+        for everyGroup in group_response.json()['groups']['items']:
+            contractIds = everyGroup['contractIds']
+            for everycontract in contractIds:
+                if everycontract == contractId:
+                    groupId = everyGroup['groupId']
+                    groupIdList.append(groupId)
+        #Dictionary to track properties processed
+        track_properties = {}
+        if len(groupIdList) != 0:
+            #List all the properties in the group
+            for groupId in groupIdList:
+                properties_response = papiObject.getAllProperties(session, contractId, groupId)
+                if properties_response.status_code == 200:
+                    for eachProperty in properties_response.json()['properties']['items']:
+                        propertyId = eachProperty['propertyId']
+                        propertyName = str(eachProperty['propertyName'])
+                        print('\nProcessing ' + propertyName)
+                        version = eachProperty['productionVersion']
+                        if version is not None:
+                            #Fetch property rules
+                            if propertyId not in track_properties:
+                                rule_tree_response = papiObject.getPropertyRules(session, \
+                                                                                propertyId, \
+                                                                                contractId, \
+                                                                                groupId, \
+                                                                                version)
+                                if rule_tree_response.status_code == 200:
+                                    track_properties[propertyId] = True
+                                    parentRule = [rule_tree_response.json()['rules']]
+                                    doAuditBehavior(parentRule, behavior, propertyName, version)
+                                else:
+                                    print('Unable to fecth rule tree for: ' + str(eachProperty['propertyName']))
+                            else:
+                                #Property is already processed
+                                print(propertyName +' Property is already processed as part of other group')
+                        else:
+                            print('No production version found for ' + eachProperty['propertyName'] + '\n')
 
+                else:
+                    print('Unable to fetch properties.')
+                    exit(-1)
+
+            #Awesome, we are done autiting the behavior
+            # Merge CSV files into XLSX
+            xlsx_file = file_name.replace('csv','xlsx')
+            workbook = Workbook(os.path.join(xlsx_file))
+            worksheet = workbook.add_worksheet(behavior)
+            with open(os.path.join(file_name), 'rt', encoding='utf8') as f:
+                reader = csv.reader(f)
+                for r, row in enumerate(reader):
+                    for c, col in enumerate(row):
+                        worksheet.write(r, c, col)
+            workbook.close()
+
+            print('\nSuccess: File written to ' + xlsx_file)
+            #os.remove(os.path.join(file_name))
+
+        else:
+            print('No groups found in contract.')
+            exit(-1)
+    else:
+        print('Unable to fetch group information')
 
 def list(args):
     access_hostname, session = init_config(args.edgerc, args.section)
     account_switch_key = args.account_key
 
+    if args.productId:
+        productId =  args.productId
+        if productId not in product_list:
+            print('--productId should be one of: ' + str(product_list))
+            exit(-1)
+        else:
+            #valid product
+            pass
+    else:
+        print('--productId is mandatory and should be one of ' + str(product_list))
+        exit(-1)
+
     papiObject = papiWrapper.papi(access_hostname, account_switch_key)
-    schema_response = papiObject.getSchema(session, productId='prd_SPM')
-    #print(json.dumps(schema_response.json(), indent=4))
-    '''with open('/Users/vbhat/Desktop/schema.json','r') as schema_file:
-        schema_response = json.load(schema_file)'''
+    schema_response = papiObject.getSchema(session, productId=productId)
+
     #if schema_response.status_code == 200:
     behavior_definitions = schema_response.json()['definitions']['behavior']['allOf']
     for each_dict in behavior_definitions:
         if 'properties' in each_dict:
             behavior_properties = each_dict['properties']['name']['enum']
     print(json.dumps(behavior_properties, indent=4))
-
-"""with open(InputFilename, 'r') as inputFile:
-    content = csv.reader(inputFile)
-    for everyLine in content:
-        if title_line:
-            try:
-                column_number = everyLine.index(args.column_name)
-            except ValueError:
-                print(args.column_name + ' is not found in the First line of Input CSV file. Please check\n')
-                exit()
-            title_line = False
-            continue
-        else:
-            var_name = everyLine[0]
-            var_value = everyLine[column_number]
-            #Loop each file in the templates directory
-            for root, dirs, files in os.walk(directory):
-                for each_file in files:
-                    #print(each_file)
-                    input_file = os.path.join(directory, each_file)
-                    with open(input_file, mode='r') as FileHandler:
-                        file_content = FileHandler.read()
-                    jsonContent = json.loads(file_content)
-                    if 'rules' in jsonContent:
-                        #print('\nThis will not work for main.json\n')
-                        pass
-                    else:
-                        cleanContent = getChildRulesandUpdate([jsonContent],var_name,var_value,each_file)
-                        #print(json.dumps(cleanContent[0], indent=4))
-                        try:
-                            with open(input_file, 'w') as outputFile:
-                                outputFile.write(json.dumps(cleanContent[0], indent=4))
-                        except FileNotFoundError:
-                            print('\n Unable to write output\n')
-
-if counter == 0:
-    print('\nNothing was replaced. Check behavior name argument and/or column_name of input csv\n')
-
-# Merge CSV files into XLSX
-workbook = Workbook(os.path.join('output',originAuditXLSXFile))
-worksheet = workbook.add_worksheet('Origin Audit')
-with open(os.path.join('output',originAuditCSVFile), 'rt', encoding='utf8') as f:
-    reader = csv.reader(f)
-    for r, row in enumerate(reader):
-        for c, col in enumerate(row):
-            worksheet.write(r, c, col)
-workbook.close()
-
-rootLogger.info('Success: File written to output/' + originAuditXLSXFile)
-os.remove(os.path.join('output', originAuditCSVFile))"""
 
 
 def get_prog_name():

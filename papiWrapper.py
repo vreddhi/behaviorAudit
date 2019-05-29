@@ -35,8 +35,55 @@ class papi(object):
             get_schema_url = get_schema_url + account_switch_key
         schema_response = session.get(get_schema_url)
 
-        return schema_response     
+        return schema_response
 
+    def getContracts(self,session):
+        """
+        Function to fetch all contracts
+        """
+        contractsUrl = 'https://' + self.access_hostname + '/papi/v1/contracts'
+
+        if '?' in contractsUrl:
+            contractsUrl = contractsUrl + self.account_switch_key
+        else:
+            #Replace & with ? if there is no query string in URL and DO NOT override object property account_switch_key
+            account_switch_key = self.account_switch_key.translate(self.account_switch_key.maketrans('&','?'))
+            contractsUrl = contractsUrl + account_switch_key
+
+        contractsResponse = session.get(contractsUrl)
+        return contractsResponse
+
+    def getGroups(self,session):
+        """
+        Function to fetch all Groups
+        """
+        GroupsUrl = 'https://' + self.access_hostname + '/papi/v1/groups'
+
+        if '?' in GroupsUrl:
+            GroupsUrl = GroupsUrl + self.account_switch_key
+        else:
+            #Replace & with ? if there is no query string in URL and DO NOT override object property account_switch_key
+            account_switch_key = self.account_switch_key.translate(self.account_switch_key.maketrans('&','?'))
+            GroupsUrl = GroupsUrl + account_switch_key
+
+        GroupsResponse = session.get(GroupsUrl)
+        return GroupsResponse
+
+    def getAllProperties(self,session,contractId,groupId):
+        """
+        Function to fetch list of all properties under the group
+        """
+        url = 'https://' + self.access_hostname + '/papi/v1/properties/?contractId=' + contractId +'&groupId=' + groupId
+
+        if '?' in url:
+            url = url + self.account_switch_key
+        else:
+            #Replace & with ? if there is no query string in URL and DO NOT override object property account_switch_key
+            account_switch_key = self.account_switch_key.translate(self.account_switch_key.maketrans('&','?'))
+            url = url + account_switch_key
+
+        propertiesResponse = session.get(url)
+        return propertiesResponse
 
     def createProperty(self, session, contractId, groupId, productId, property_name):
         """
@@ -61,6 +108,23 @@ class papi(object):
 
         create_property_response = session.post(create_property_url, data=newPropertyData,headers=self.headers)
         return create_property_response
+
+    def getPropertyRules(self, session, propertyId, contractId, groupId, version):
+        """
+        Function to download rules from a property
+        """
+
+        rulesUrl = 'https://' + self.access_hostname  + '/papi/v1/properties/' + propertyId +'/versions/'+str(version)+'/rules/?contractId='+ contractId +'&groupId='+ groupId
+
+        if '?' in rulesUrl:
+            rulesUrl = rulesUrl + self.account_switch_key
+        else:
+            #Replace & with ? if there is no query string in URL and DO NOT override object property account_switch_key
+            account_switch_key = self.account_switch_key.translate(self.account_switch_key.maketrans('&','?'))
+            rulesUrl = rulesUrl + account_switch_key
+
+        rulesResponse = session.get(rulesUrl)
+        return rulesResponse
 
     def updatePropertyRules(self, session, contractId, groupId, propertyId, ruletree):
         """

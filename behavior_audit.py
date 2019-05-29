@@ -312,26 +312,6 @@ def audit(args):
         print('--productId is mandatory and should be one of ' + str(product_list))
         exit(-1)
 
-    with open('/Users/vbhat/Desktop/schema.json','r') as file_reader:
-        schema_response = json.load(file_reader)
-
-    try:
-        behavior_properties = schema_response['definitions']['catalog']['behaviors'][behavior]
-        final_obj = {}
-        result_behavior = computeAllBehaviorOptions(schema_response, behavior_properties, final_obj)
-        #print(json.dumps(result_behavior, indent=4))
-        walk(result_behavior)
-
-        title_line = 'Property_Name, PROD_Version, Rule_name'
-        for eachColumn in title_line_list:
-            title_line = title_line + ',' + eachColumn
-
-        file_name = behavior + '_Audit.csv'
-        with open(file_name,'w') as audit_file:
-            audit_file.write(title_line+'\n')
-
-    except KeyError:
-        print('Schema for ' + behavior + ' is not found')
 
     papiObject = papiWrapper.papi(access_hostname, account_switch_key)
     schema_response = papiObject.getSchema(session, productId=productId)
@@ -346,6 +326,24 @@ def audit(args):
         print('Unable to get schema for the product')
         exit(-1)
 
+
+    try:
+        behavior_properties = schema_response.json()['definitions']['catalog']['behaviors'][behavior]
+        final_obj = {}
+        result_behavior = computeAllBehaviorOptions(schema_response.json(), behavior_properties, final_obj)
+        #print(json.dumps(result_behavior, indent=4))
+        walk(result_behavior)
+
+        title_line = 'Property_Name, PROD_Version, Rule_name'
+        for eachColumn in title_line_list:
+            title_line = title_line + ',' + eachColumn
+
+        file_name = behavior + '_Audit.csv'
+        with open(file_name,'w') as audit_file:
+            audit_file.write(title_line+'\n')
+
+    except KeyError:
+        print('Schema for ' + behavior + ' is not found')
 
     if args.contractId:
         contractId = args.contractId
@@ -384,10 +382,12 @@ def audit(args):
             for groupId in groupIdList:
                 properties_response = papiObject.getAllProperties(session, contractId, groupId)
                 if properties_response.status_code == 200:
+                    total_number_of_properties = len(properties_response.json()['properties']['items'])
                     for eachProperty in properties_response.json()['properties']['items']:
                         propertyId = eachProperty['propertyId']
                         propertyName = str(eachProperty['propertyName'])
-                        print('\nProcessing ' + propertyName)
+                        print('Processing ' + propertyName)
+                        total_number_of_properties -= 1
                         version = eachProperty['productionVersion']
                         if version is not None:
                             #Fetch property rules
@@ -402,12 +402,17 @@ def audit(args):
                                     parentRule = [rule_tree_response.json()['rules']]
                                     doAuditBehavior(parentRule, behavior, propertyName, version)
                                 else:
-                                    print('Unable to fecth rule tree for: ' + str(eachProperty['propertyName']))
+                                    print('Unable to fetch rule tree for: ' + str(eachProperty['propertyName']))
+
                             else:
                                 #Property is already processed
                                 print(propertyName +' Property is already processed as part of other group')
+
                         else:
                             print('No production version found for ' + eachProperty['propertyName'] + '\n')
+
+                        if total_number_of_properties > 0:
+                            print(str(total_number_of_properties) + ' more properties to be processed in group ' + str(groupId))
 
                 else:
                     print('Unable to fetch properties.')

@@ -241,6 +241,7 @@ def doAuditBehavior(parentRule, behavior, propertyName, version):
                 row_value = propertyName + ',' + str(version) + ',' + rule_name + ',' + row_value
                 with open(file_name,'a') as audit_file:
                     audit_file.write(row_value+'\n')
+                    del row_value
 
             else:
                 #Behavior did not match

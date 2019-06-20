@@ -378,18 +378,23 @@ def audit(args):
         #Dictionary to track properties processed
         track_properties = {}
         if len(groupIdList) != 0:
+            totalGroups = len(groupIdList)
+            print('Found ' + str(totalGroups) + ' total groups.')
             #List all the properties in the group
+            groupCount = 1
             for groupId in groupIdList:
+                print('\nProcessing Group: ' + groupId + ' (' + str(groupCount) + ' of ' + str(totalGroups) + ' groups)')
                 properties_response = papiObject.getAllProperties(session, contractId, groupId)
                 if properties_response.status_code == 200:
                     total_number_of_properties = len(properties_response.json()['properties']['items'])
                     for eachProperty in properties_response.json()['properties']['items']:
                         propertyId = eachProperty['propertyId']
                         propertyName = str(eachProperty['propertyName'])
-                        print('Processing ' + propertyName)
+
                         total_number_of_properties -= 1
                         version = eachProperty['productionVersion']
                         if version is not None:
+                            print('Property: ' + propertyName)
                             #Fetch property rules
                             if propertyId not in track_properties:
                                 rule_tree_response = papiObject.getPropertyRules(session, \
@@ -406,18 +411,18 @@ def audit(args):
 
                             else:
                                 #Property is already processed
-                                print(propertyName +' Property is already processed as part of other group')
+                                print(propertyName +' is already processed as part of other group')
 
                         else:
-                            print('No production version found for ' + eachProperty['propertyName'] + '\n')
+                            print('Property: ' + eachProperty['propertyName'] + ' (SKIPPING: No production version found)')
 
-                        if total_number_of_properties > 0:
-                            print(str(total_number_of_properties) + ' more properties to be processed in group ' + str(groupId))
+                        #if total_number_of_properties > 0:
+                        #    print(str(total_number_of_properties) + ' more properties to be processed in group ' + str(groupId))
 
                 else:
                     print('Unable to fetch properties.')
                     exit(-1)
-
+                groupCount += 1
             #Awesome, we are done autiting the behavior
             # Merge CSV files into XLSX
             xlsx_file = file_name.replace('csv','xlsx')

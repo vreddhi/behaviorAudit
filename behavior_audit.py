@@ -223,7 +223,10 @@ def doAuditBehavior(parentRule, behavior, propertyName, version):
                         features_location = eachTitle.split('.')
                         feature = eachbehavior['options']
                         for eachSeparator in features_location[0:]:
-                            feature = feature[eachSeparator]
+                            try:
+                                feature = feature[eachSeparator]
+                            except KeyError:
+                                feature = ''
                     else:
                         try:
                             feature = eachbehavior['options'][eachTitle]

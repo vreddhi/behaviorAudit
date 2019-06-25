@@ -225,13 +225,19 @@ def doAuditBehavior(parentRule, behavior, propertyName, version):
                         for eachSeparator in features_location[0:]:
                             try:
                                 feature = feature[eachSeparator]
-                            except KeyError:
-                                feature = ''
+                            except (KeyError, TypeError) as e:
+                                if type(e).__name__ == TypeError:
+                                    feature = 'SCHEMA MIS-MATCH: Pls check manually'
+                                else:
+                                    feature = ''
                     else:
                         try:
                             feature = eachbehavior['options'][eachTitle]
-                        except KeyError:
-                            feature = ''
+                        except (KeyError, TypeError) as e:
+                            if type(e).__name__ == TypeError:
+                                feature = 'SCHEMA MIS-MATCH: Pls check manually'
+                            else:
+                                feature = ''
 
                     if 'row_value' not in locals():
                         row_value = str(feature)

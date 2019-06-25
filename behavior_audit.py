@@ -205,7 +205,7 @@ def create_sub_command(
 
     return action
 
-product_list = ['prd_SPM']
+product_list = ['']
 options_to_be_removed = ['uuid','templateUuid','locked','options']
 path = []
 title_line_list = []
@@ -312,12 +312,12 @@ def audit(args):
 
     if args.productId:
         productId =  args.productId
-        if productId not in product_list:
-            print('--productId should be one of: ' + str(product_list))
-            exit(-1)
-        else:
+        #if productId not in product_list:
+        #    print('--productId should be one of: ' + str(product_list))
+        #    exit(-1)
+        #else:
             #valid product
-            pass
+        #    pass
     else:
         print('--productId is mandatory and should be one of ' + str(product_list))
         exit(-1)
@@ -333,7 +333,7 @@ def audit(args):
             print(behavior + ' not found in Schema response.')
             exit(-1)
     else:
-        print('Unable to get schema for the product')
+        print('Unable to get schema for the product: ' + productId)
         exit(-1)
 
 

@@ -20,13 +20,31 @@ This program provides the following functionality:
 
 
 ### Sample Usage
-Lists each property and behavior details, and outputs to a .xslx file
-
-(Note: Does not look at any behavior references in advanced metadata)
+Lists each property and behavior details, and outputs to a .xslx file. (Note: Does not look at any behavior references in advanced metadata)
 
 ```bash
 %  python3 behavior_audit.py audit --behavior <behavior_name> --productId <productId> --contractId <contractId>
 %  python3 behavior_audit.py audit --behavior <behavior_name> --productId <productId> --contractId <contractId> --account-key <account_key>
+%  python3 behavior_audit.py audit --behavior siteShield --productId prd_SPM --contractId ctr_1-28TBWN --account-key 1-1CES
 ```
 
-(Note: Unfortunately productId is not part of property or not exposed, so assuming the productId is known for the specified contract.)
+(Note: Unfortunately productId is not part of property or not exposed, so you have to find out the productId is known for the specified contract.)
+
+### Misc 
+
+**Get contract ids:** 
+
+http --auth-type edgegrid -a creds: :"/papi/v1/contracts?accountSwitchKey=<switch_key>"
+
+**Get product ids:**
+
+http --auth-type edgegrid -a creds: :"/papi/v1/products?contractId=<switch_key>&accountSwitchKey=<switch_key>"
+
+**Get behavior names:**
+
+[https://developer.akamai.com/api/core_features/property_manager/vlatest.html#behaviors](https://developer.akamai.com/api/core_features/property_manager/vlatest.html#behaviors)
+
+
+
+
+

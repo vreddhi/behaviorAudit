@@ -6,6 +6,7 @@ Provides a way to audit behavior information for properties via Open APIs and wi
 * Python 3+
 * pip install edgegrid-python
 * pip install xlsxwriter
+* pip install jsonschema
 
 ### Credentials
 In order to use this module, you need to:

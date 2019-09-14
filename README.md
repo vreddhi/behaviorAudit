@@ -9,6 +9,10 @@ Provides a way to audit behavior information for properties via Open APIs and wi
 * pip install jsonschema
 * pip install asyncio 
 
+Or more easily:
+* pip install -r requirements.txt
+
+
 ### Credentials
 In order to use this module, you need to:
 * Set up your credential files as described in the [authorization](https://developer.akamai.com/introduction/Prov_Creds.html) and [credentials](https://developer.akamai.com/introduction/Conf_Client.html) sections of the Get Started pagegetting started guide on developer.akamai.com (the developer portal).

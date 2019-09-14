@@ -30,6 +30,10 @@ from akamai.edgegrid import EdgeGridAuth, EdgeRc
 import papiWrapper
 import csv
 from xlsxwriter.workbook import Workbook
+import asyncio
+import concurrent.futures
+
+
 
 """
 This code leverages Akamai OPEN API.
@@ -61,7 +65,7 @@ root_logger.addHandler(console_handler)
 root_logger.setLevel(logging.INFO)
 
 
-def init_config(edgerc_file, section):
+def init_config(edgerc_file, section, parallelism):
     if not edgerc_file:
         if not os.getenv("AKAMAI_EDGERC"):
             edgerc_file = os.path.join(os.path.expanduser("~"), '.edgerc')
@@ -84,6 +88,8 @@ def init_config(edgerc_file, section):
 
         session = requests.Session()
         session.auth = EdgeGridAuth.from_edgerc(edgerc, section)
+        adapter = requests.adapters.HTTPAdapter(pool_connections=parallelism, pool_maxsize=parallelism+10)
+        session.mount('https://', adapter)
 
         return base_url, session
     except configparser.NoSectionError:
@@ -203,6 +209,13 @@ def create_sub_command(
         help="Account Switch Key",
         default="")
 
+    optional.add_argument(
+        "--parallel",
+        help="concurrency level (1-20), deafult=8",
+        type=int,
+        choices=range(1, 21),
+        default=8)
+
     return action
 
 product_list = ['']
@@ -303,13 +316,60 @@ def walk(d):
         print("###Type {} not recognized: {}.{}={}".format(type(v), ".".join(path),k, v))
 
 
+def retrieveProperty(propertyJson, session, contractId, groupId, papiObject):
+    root_logger.debug("property json: %s", propertyJson)
+
+    rule_tree_response = {}
+    propertyId = propertyJson['propertyId']
+    propertyName = str(propertyJson['propertyName'])
+    version = propertyJson['productionVersion']
+
+    if version is not None:
+        print('Property: ' + propertyName)
+        #Fetch property rules
+        rule_tree_response = papiObject.getPropertyRules(session, propertyId, contractId, groupId, version)
+    else:
+        print('Property: ' + propertyName + ' (SKIPPING: No production version found)')
+    return [propertyName, version, rule_tree_response]
+
+async def auditInOneGroup(groupProperties, session, contractId, groupId, papiObject, parallel, behavior):
+    root_logger.info('-- Processing Group: %s', groupId)
+
+    loop = asyncio.get_event_loop()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=parallel) as executor:
+        futures = [
+            loop.run_in_executor(
+                executor, 
+                retrieveProperty,
+                eachProperty, session, contractId, groupId, papiObject
+            ) for eachProperty in groupProperties
+        ]
+        for result in await asyncio.gather(*futures):
+            propertyName = result[0]
+            version = result[1]
+            rule_tree_response = result[2]
+
+            root_logger.info("rule_tree_response: %s", rule_tree_response)
+            if hasattr(rule_tree_response, 'status_code'):
+                if rule_tree_response.status_code == 200:
+                    parentRule = [rule_tree_response.json()['rules']]
+                    doAuditBehavior(parentRule, behavior, propertyName, version)
+            else:
+                print('Unable to fetch rule tree for: ' + propertyName)
+
+def auditGroupPropertiesInParallel(groupProperties, session, contractId, groupId, papiObject, parallel, behavior):
+    if len(groupProperties) > 0:
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(auditInOneGroup(groupProperties, session, contractId, groupId, papiObject, parallel, behavior))
 
 
 def audit(args):
-    access_hostname, session = init_config(args.edgerc, args.section)
+    access_hostname, session = init_config(args.edgerc, args.section, args.parallel)
     account_switch_key = args.account_key
     behavior =  args.behavior
-
+    if (args.debug):
+        root_logger.setLevel(logging.DEBUG)
+            
     if args.productId:
         productId =  args.productId
         #if productId not in product_list:
@@ -385,8 +445,11 @@ def audit(args):
                 if everycontract == contractId:
                     groupId = everyGroup['groupId']
                     groupIdList.append(groupId)
+        
         #Dictionary to track properties processed
         track_properties = {}
+
+        root_logger.debug("groupIdList:  %d", len(groupIdList))
         if len(groupIdList) != 0:
             totalGroups = len(groupIdList)
             print('Found ' + str(totalGroups) + ' total groups.')
@@ -396,39 +459,9 @@ def audit(args):
                 print('\nProcessing Group: ' + groupId + ' (' + str(groupCount) + ' of ' + str(totalGroups) + ' groups)')
                 properties_response = papiObject.getAllProperties(session, contractId, groupId)
                 if properties_response.status_code == 200:
-                    total_number_of_properties = len(properties_response.json()['properties']['items'])
-                    for eachProperty in properties_response.json()['properties']['items']:
-                        propertyId = eachProperty['propertyId']
-                        propertyName = str(eachProperty['propertyName'])
-
-                        total_number_of_properties -= 1
-                        version = eachProperty['productionVersion']
-                        if version is not None:
-                            print('Property: ' + propertyName)
-                            #Fetch property rules
-                            if propertyId not in track_properties:
-                                rule_tree_response = papiObject.getPropertyRules(session, \
-                                                                                propertyId, \
-                                                                                contractId, \
-                                                                                groupId, \
-                                                                                version)
-                                if rule_tree_response.status_code == 200:
-                                    track_properties[propertyId] = True
-                                    parentRule = [rule_tree_response.json()['rules']]
-                                    doAuditBehavior(parentRule, behavior, propertyName, version)
-                                else:
-                                    print('Unable to fetch rule tree for: ' + str(eachProperty['propertyName']))
-
-                            else:
-                                #Property is already processed
-                                print(propertyName +' is already processed as part of other group')
-
-                        else:
-                            print('Property: ' + eachProperty['propertyName'] + ' (SKIPPING: No production version found)')
-
-                        #if total_number_of_properties > 0:
-                        #    print(str(total_number_of_properties) + ' more properties to be processed in group ' + str(groupId))
-
+                    properties = properties_response.json()['properties']['items'];
+                    total_number_of_properties = len(properties)
+                    auditGroupPropertiesInParallel(properties, session, contractId, groupId, papiObject, args.parallel, behavior)
                 else:
                     print('Unable to fetch properties.')
                     exit(-1)

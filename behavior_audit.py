@@ -30,7 +30,6 @@ from akamai.edgegrid import EdgeGridAuth, EdgeRc
 import papiWrapper
 import csv
 from xlsxwriter.workbook import Workbook
-import asyncio
 import concurrent.futures
 
 
@@ -332,35 +331,30 @@ def retrieveProperty(propertyJson, session, contractId, groupId, papiObject):
         print('Property: ' + propertyName + ' (SKIPPING: No production version found)')
     return [propertyName, version, rule_tree_response]
 
-async def auditInOneGroup(groupProperties, session, contractId, groupId, papiObject, parallel, behavior):
+def auditGroupPropertiesInParallel(groupProperties, session, contractId, groupId, papiObject, parallel, behavior):
     root_logger.info('-- Processing Group: %s', groupId)
 
-    loop = asyncio.get_event_loop()
     with concurrent.futures.ThreadPoolExecutor(max_workers=parallel) as executor:
-        futures = [
-            loop.run_in_executor(
-                executor, 
-                retrieveProperty,
-                eachProperty, session, contractId, groupId, papiObject
-            ) for eachProperty in groupProperties
-        ]
-        for result in await asyncio.gather(*futures):
-            propertyName = result[0]
-            version = result[1]
-            rule_tree_response = result[2]
+        futures = { executor.submit(retrieveProperty, eachProperty, session, contractId, groupId, papiObject): eachProperty for eachProperty in groupProperties }
 
-            root_logger.info("rule_tree_response: %s", rule_tree_response)
-            if hasattr(rule_tree_response, 'status_code'):
-                if rule_tree_response.status_code == 200:
-                    parentRule = [rule_tree_response.json()['rules']]
-                    doAuditBehavior(parentRule, behavior, propertyName, version)
+        for future in concurrent.futures.as_completed(futures):
+            prop = futures[future]
+            try:
+                result = future.result()
+            except Exception as exc:
+                root_logger.error('%r generated an exception: %s' % (prop, exc))
             else:
-                print('Unable to fetch rule tree for: ' + propertyName)
+                propertyName = result[0]
+                version = result[1]
+                rule_tree_response = result[2]
 
-def auditGroupPropertiesInParallel(groupProperties, session, contractId, groupId, papiObject, parallel, behavior):
-    if len(groupProperties) > 0:
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(auditInOneGroup(groupProperties, session, contractId, groupId, papiObject, parallel, behavior))
+                root_logger.debug("rule_tree_response: %s", rule_tree_response)
+                if hasattr(rule_tree_response, 'status_code'):
+                    if rule_tree_response.status_code == 200:
+                        parentRule = [rule_tree_response.json()['rules']]
+                        doAuditBehavior(parentRule, behavior, propertyName, version)
+                else:
+                    print('Unable to fetch rule tree for: ' + propertyName)
 
 
 def audit(args):

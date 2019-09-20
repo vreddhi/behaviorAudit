@@ -4,9 +4,14 @@ Provides a way to audit behavior information for properties via Open APIs and wi
 
 ## Local Install
 * Python 3+
-* pip install edgegrid-python
-* pip install xlsxwriter
-* pip install jsonschema
+* Create Python virtual environment
+  * python3 -m venv
+* Activate virtual environment
+  * Mac: source venv/bin/activate
+  * Windows (cmd): venv\Scripts\activate.bat
+  * Windows (PowerShell) venv\Scripts\Activate.ps1
+* Install Python dependencies to virtual environment
+  * pip install -r requirements.txt
 
 ### Credentials
 In order to use this module, you need to:
@@ -31,9 +36,9 @@ Lists each property and behavior details, and outputs to a .xslx file. (Note: Do
 
 (Note: Unfortunately productId is not part of property or not exposed, so you have to find out the productId is known for the specified contract.)
 
-### Misc 
+### Misc
 
-**Get contract ids:** 
+**Get contract ids:**
 
 http --auth-type edgegrid -a creds: :"/papi/v1/contracts?accountSwitchKey=<switch_key>"
 
@@ -44,8 +49,3 @@ http --auth-type edgegrid -a creds: :"/papi/v1/products?contractId=<switch_key>&
 **Get behavior names:**
 
 [https://developer.akamai.com/api/core_features/property_manager/vlatest.html#behaviors](https://developer.akamai.com/api/core_features/property_manager/vlatest.html#behaviors)
-
-
-
-
-

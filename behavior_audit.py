@@ -17,6 +17,13 @@ Copyright 2019 Akamai Technologies, Inc. All Rights Reserved.
  limitations under the License.
 """
 
+
+"""
+This code leverages Akamai OPEN API.
+In case you need quick explanation contact the initiators.
+Initiators: vbhat@akamai.com and aetsai@akamai.com
+"""
+
 import argparse
 import configparser
 import json
@@ -30,13 +37,6 @@ from akamai.edgegrid import EdgeGridAuth, EdgeRc
 import papiWrapper
 import csv
 from xlsxwriter.workbook import Workbook
-
-"""
-This code leverages Akamai OPEN API.
-In case you need quick explanation contact the initiators.
-Initiators: vbhat@akamai.com and aetsai@akamai.com
-"""
-
 PACKAGE_VERSION = "0.1.0"
 
 # Setup logging
@@ -120,19 +120,27 @@ def cli():
         name="help",
         help="Show available help",
         add_help=False).add_argument(
-        'args',
-        metavar="",
-        nargs=argparse.REMAINDER)
+            'args',
+            metavar="",
+            nargs=argparse.REMAINDER)
 
     actions["audit"] = create_sub_command(
-        subparsers, "audit", "Audit for beahviors in a group/contract",
-        [{"name": "contractId", "help": "ContractID to be used in API calls"},
-         {"name": "productId", "help": "productId to be used in API calls"}],
-        [{"name": "behavior", "help": "Name of behavior to audit"}])
+        subparsers,
+        "audit", "Audit for beahviors in a group/contract",
+        [
+            {"name": "contractId", "help": "ContractID to be used in API calls"},
+            {"name": "productId", "help": "productId to be used in API calls"}
+        ],
+        [
+            {"name": "behavior", "help": "Name of behavior to audit"}
+        ])
 
     actions["list"] = create_sub_command(
-        subparsers, "list", "Lists all behaviors",
-        [{"name": "productId", "help": "productId to be used in API calls"}],
+        subparsers,
+        "list", "Lists all behaviors",
+        [
+            {"name": "productId", "help": "productId to be used in API calls"}
+        ],
         [])
 
     args = parser.parse_args()
@@ -205,64 +213,58 @@ def create_sub_command(
 
     return action
 
+
 product_list = ['']
-options_to_be_removed = ['uuid','templateUuid','locked','options']
+options_to_be_removed = ['uuid', 'templateUuid', 'locked', 'options']
 path = []
 title_line_list = []
 
-#Function to recursively parse the rules
-def doAuditBehavior(parentRule, behavior, propertyName, version):
-    file_name = behavior + '_Audit.csv'
+# Function to recursively parse the rules
+
+
+def doAuditBehavior(parentRule, behavior, propertyName, version, csvFile):
     for eachRule in parentRule:
         rule_name = eachRule['name']
         for eachbehavior in eachRule['behaviors']:
             if eachbehavior['name'] in behavior:
                 #print(json.dumps(eachbehavior, indent=4))
+                row = {
+                    'Property_Name': propertyName,
+                    'Property_Version': str(version),
+                    'Rule_name': rule_name
+                }
                 for eachTitle in title_line_list:
-                    if '.' in eachTitle:
-                        features_location = eachTitle.split('.')
-                        feature = eachbehavior['options']
-                        for eachSeparator in features_location[0:]:
-                            try:
-                                feature = feature[eachSeparator]
-                            except (KeyError, TypeError) as e:
-                                if type(e).__name__ == TypeError:
-                                    feature = 'SCHEMA MIS-MATCH: Pls check manually'
-                                else:
-                                    feature = ''
-                    else:
+                    feature = eachbehavior['options']
+                    features_location = eachTitle.split('.')
+                    for eachSeparator in features_location[0:]:
                         try:
-                            feature = eachbehavior['options'][eachTitle]
+                            feature = feature[eachSeparator]
                         except (KeyError, TypeError) as e:
                             if type(e).__name__ == TypeError:
                                 feature = 'SCHEMA MIS-MATCH: Pls check manually'
                             else:
                                 feature = ''
 
-                    if 'row_value' not in locals():
-                        row_value = str(feature)
-                    else:
-                        row_value = row_value + ',' + str(feature)
-                #write the content to file
-                row_value = propertyName + ',' + str(version) + ',' + rule_name + ',' + row_value
-                with open(file_name,'a') as audit_file:
-                    audit_file.write(row_value+'\n')
-                    del row_value
+                    row[eachTitle]=str(feature)
+
+                # write the content to file
+                csvFile.writerow(row)
 
             else:
-                #Behavior did not match
+                # Behavior did not match
                 pass
 
-        #Check whether we have child rules, where in again behavior might be found
+        # Check whether we have child rules, where in again behavior might be found
         if len(eachRule['children']) != 0:
-            doAuditBehavior(eachRule['children'], behavior, propertyName, version)
+            doAuditBehavior(eachRule['children'], behavior, propertyName, version, csvFile)
 
 
-def computeAllBehaviorOptions(schema_response, behaviorData,final_obj):
+def computeAllBehaviorOptions(schema_response, behaviorData, final_obj):
     if 'type' in behaviorData and behaviorData['type'] == 'object':
         if 'properties' in behaviorData:
             for eachKey in behaviorData['properties'].keys():
-                computeAllBehaviorOptions(schema_response, behaviorData['properties'][eachKey],final_obj)
+                computeAllBehaviorOptions(
+                    schema_response, behaviorData['properties'][eachKey], final_obj)
                 if '$ref' in behaviorData['properties'][eachKey].keys():
                     features_location = behaviorData['properties'][eachKey]['$ref'].split('/')
                     dict_location = schema_response
@@ -277,58 +279,57 @@ def computeAllBehaviorOptions(schema_response, behaviorData,final_obj):
 
 
 def walk(d):
-    #Function to parse the computed behavior from schema
+    # Function to parse the computed behavior from schema
     global path
-    for k,v in d.items():
-      if isinstance(v, str) or isinstance(v, int) or isinstance(v, float):
-        path.append(k)
-        #print("{}={}".format(".".join(path), v))
-        title_line_list.append(str("{}={}".format(".".join(path), v)).strip('='))
-        path.pop()
-      elif v is None:
-        path.append(k)
-        ## do something special
-        path.pop()
-      elif isinstance(v, dict):
-          if len(v.keys()) > 0:
-              path.append(k)
-              walk(v)
-              path.pop()
-          else:
-              path.append(k)
-              #print("{}={}".format(".".join(path), v))
-              title_line_list.append(str("{}={}".format(".".join(path), v)).strip('{}').strip('='))
-              path.pop()
-      else:
-        print("###Type {} not recognized: {}.{}={}".format(type(v), ".".join(path),k, v))
-
-
+    for k, v in d.items():
+        if isinstance(v, str) or isinstance(v, int) or isinstance(v, float):
+            path.append(k)
+            #print("{}={}".format(".".join(path), v))
+            title_line_list.append(str("{}={}".format(".".join(path), v)).strip('='))
+            path.pop()
+        elif v is None:
+            path.append(k)
+            # do something special
+            path.pop()
+        elif isinstance(v, dict):
+            if len(v.keys()) > 0:
+                path.append(k)
+                walk(v)
+                path.pop()
+            else:
+                path.append(k)
+                #print("{}={}".format(".".join(path), v))
+                title_line_list.append(
+                    str("{}={}".format(".".join(path), v)).strip('{}').strip('='))
+                path.pop()
+        else:
+            print("###Type {} not recognized: {}.{}={}".format(type(v), ".".join(path), k, v))
 
 
 def audit(args):
     access_hostname, session = init_config(args.edgerc, args.section)
     account_switch_key = args.account_key
-    behavior =  args.behavior
+    behavior = args.behavior
 
     if args.productId:
-        productId =  args.productId
-        #if productId not in product_list:
+        productId = args.productId
+        # if productId not in product_list:
         #    print('--productId should be one of: ' + str(product_list))
         #    exit(-1)
-        #else:
-            #valid product
+        # else:
+        # valid product
         #    pass
     else:
         print('--productId is mandatory and should be one of ' + str(product_list))
         exit(-1)
-
 
     papiObject = papiWrapper.papi(access_hostname, account_switch_key)
     schema_response = papiObject.getSchema(session, productId=productId)
 
     if schema_response.status_code == 200:
         try:
-            behavior_properties = schema_response.json()['definitions']['catalog']['behaviors'][behavior]['properties']['options']['properties']
+            behavior_properties = schema_response.json(
+            )['definitions']['catalog']['behaviors'][behavior]['properties']['options']['properties']
         except KeyError:
             print(behavior + ' not found in Schema response.')
             exit(-1)
@@ -336,135 +337,139 @@ def audit(args):
         print('Unable to get schema for the product: ' + productId)
         exit(-1)
 
-
     try:
-        behavior_properties = schema_response.json()['definitions']['catalog']['behaviors'][behavior]
+        behavior_properties = schema_response.json(
+        )['definitions']['catalog']['behaviors'][behavior]
         final_obj = {}
-        result_behavior = computeAllBehaviorOptions(schema_response.json(), behavior_properties, final_obj)
+        result_behavior = computeAllBehaviorOptions(
+            schema_response.json(), behavior_properties, final_obj)
         #print(json.dumps(result_behavior, indent=4))
         walk(result_behavior)
-
-        title_line = 'Property_Name, PROD_Version, Rule_name'
-        for eachColumn in title_line_list:
-            title_line = title_line + ',' + eachColumn
-
-        file_name = behavior + '_Audit.csv'
-        with open(file_name,'w') as audit_file:
-            audit_file.write(title_line+'\n')
-
     except KeyError:
         print('Schema for ' + behavior + ' is not found')
 
-    if args.contractId:
-        contractId = args.contractId
-    else:
-        #Get all the properties of a contract
-        contract_response = papiObject.getContracts(session)
-        if contract_response.status_code == 200:
-            if len(contract_response.json()['contracts']['items']) > 1:
-                print('More than one contracts found. Please use --contractId <contractID>')
-                print('\nAvailable contractIDs are:')
-                counter = 0
-                for eachContract in contract_response.json()['contracts']['items']:
-                    counter += 1
-                    print(str(counter) + '. ' + eachContract['contractId'])
-                exit(-1)
-            else:
-                contractId = contract_response.json()['contracts']['items'][0]['contractId']
+
+
+    file_name = behavior + '_Audit.csv'
+    with open(file_name, "w", newline='') as audit_file:
+        fields = ['Property_Name', 'Property_Version', 'Rule_name']
+        fields.extend(title_line_list)
+        csvWriter = csv.DictWriter(audit_file, dialect='excel', fieldnames=fields)
+        csvWriter.writeheader()
+
+        if args.contractId:
+            contractId = args.contractId
         else:
-            print('Unable to fetch contracts information')
+            # Get all the properties of a contract
+            contract_response = papiObject.getContracts(session)
+            if contract_response.status_code == 200:
+                if len(contract_response.json()['contracts']['items']) > 1:
+                    print('More than one contracts found. Please use --contractId <contractID>')
+                    print('\nAvailable contractIDs are:')
+                    counter = 0
+                    for eachContract in contract_response.json()['contracts']['items']:
+                        counter += 1
+                        print(str(counter) + '. ' + eachContract['contractId'])
+                    exit(-1)
+                else:
+                    contractId = contract_response.json()['contracts']['items'][0]['contractId']
+            else:
+                print('Unable to fetch contracts information')
 
-    #Get all the properties of a contract
-    group_response = papiObject.getGroups(session)
-    if group_response.status_code == 200:
-        #Constitute an array of groupIds for the contract
-        groupIdList = []
-        for everyGroup in group_response.json()['groups']['items']:
-            contractIds = everyGroup['contractIds']
-            for everycontract in contractIds:
-                if everycontract == contractId:
-                    groupId = everyGroup['groupId']
-                    groupIdList.append(groupId)
-        #Dictionary to track properties processed
-        track_properties = {}
-        if len(groupIdList) != 0:
-            totalGroups = len(groupIdList)
-            print('Found ' + str(totalGroups) + ' total groups.')
-            #List all the properties in the group
-            groupCount = 1
-            for groupId in groupIdList:
-                print('\nProcessing Group: ' + groupId + ' (' + str(groupCount) + ' of ' + str(totalGroups) + ' groups)')
-                properties_response = papiObject.getAllProperties(session, contractId, groupId)
-                if properties_response.status_code == 200:
-                    total_number_of_properties = len(properties_response.json()['properties']['items'])
-                    for eachProperty in properties_response.json()['properties']['items']:
-                        propertyId = eachProperty['propertyId']
-                        propertyName = str(eachProperty['propertyName'])
+        # Get all the properties of a contract
+        group_response = papiObject.getGroups(session)
+        if group_response.status_code == 200:
+            # Constitute an array of groupIds for the contract
+            groupIdList = []
+            for everyGroup in group_response.json()['groups']['items']:
+                contractIds = everyGroup['contractIds']
+                for everycontract in contractIds:
+                    if everycontract == contractId:
+                        groupId = everyGroup['groupId']
+                        groupIdList.append(groupId)
+            # Dictionary to track properties processed
+            track_properties = {}
+            if len(groupIdList) != 0:
+                totalGroups = len(groupIdList)
+                print('Found ' + str(totalGroups) + ' total groups.')
+                # List all the properties in the group
+                groupCount = 1
+                for groupId in groupIdList:
+                    print('\nProcessing Group: ' + groupId +
+                          ' (' + str(groupCount) + ' of ' + str(totalGroups) + ' groups)')
+                    properties_response = papiObject.getAllProperties(session, contractId, groupId)
+                    if properties_response.status_code == 200:
+                        total_number_of_properties = len(
+                            properties_response.json()['properties']['items'])
+                        for eachProperty in properties_response.json()['properties']['items']:
+                            propertyId = eachProperty['propertyId']
+                            propertyName = str(eachProperty['propertyName'])
 
-                        total_number_of_properties -= 1
-                        version = eachProperty['productionVersion']
-                        if version is not None:
-                            print('Property: ' + propertyName)
-                            #Fetch property rules
-                            if propertyId not in track_properties:
-                                rule_tree_response = papiObject.getPropertyRules(session, \
-                                                                                propertyId, \
-                                                                                contractId, \
-                                                                                groupId, \
-                                                                                version)
-                                if rule_tree_response.status_code == 200:
-                                    track_properties[propertyId] = True
-                                    parentRule = [rule_tree_response.json()['rules']]
-                                    doAuditBehavior(parentRule, behavior, propertyName, version)
+                            total_number_of_properties -= 1
+                            version = eachProperty['productionVersion']
+                            print (eachProperty)
+                            if version is not None:
+                                print('Property: ' + propertyName)
+                                # Fetch property rules
+                                if propertyId not in track_properties:
+                                    rule_tree_response = papiObject.getPropertyRules(
+                                        session, propertyId, contractId, groupId, version)
+                                    if rule_tree_response.status_code == 200:
+                                        track_properties[propertyId] = True
+                                        parentRule = [rule_tree_response.json()['rules']]
+                                        doAuditBehavior(parentRule, behavior, propertyName, version, csvWriter)
+                                    else:
+                                        print('Unable to fetch rule tree for: ' +
+                                              str(eachProperty['propertyName']))
+
                                 else:
-                                    print('Unable to fetch rule tree for: ' + str(eachProperty['propertyName']))
+                                    # Property is already processed
+                                    print(propertyName + ' is already processed as part of other group')
 
                             else:
-                                #Property is already processed
-                                print(propertyName +' is already processed as part of other group')
+                                print('Property: ' + eachProperty['propertyName'] +
+                                      ' (SKIPPING: No production version found)')
 
-                        else:
-                            print('Property: ' + eachProperty['propertyName'] + ' (SKIPPING: No production version found)')
+                            # if total_number_of_properties > 0:
+                            #    print(str(total_number_of_properties) + ' more properties to be processed in group ' + str(groupId))
 
-                        #if total_number_of_properties > 0:
-                        #    print(str(total_number_of_properties) + ' more properties to be processed in group ' + str(groupId))
+                    else:
+                        print('Unable to fetch properties.')
+                        exit(-1)
+                    groupCount += 1
+                # Awesome, we are done autiting the behavior
+                # Merge CSV files into XLSX
+                xlsx_file = file_name.replace('csv', 'xlsx')
+                workbook = Workbook(os.path.join(xlsx_file))
+                worksheet = workbook.add_worksheet(behavior)
+                with open(os.path.join(file_name), 'rt', encoding='utf8') as f:
+                    reader = csv.reader(f, dialect='excel')
+                    for r, row in enumerate(reader):
+                        for c, col in enumerate(row):
+                            worksheet.write(r, c, col)
+                workbook.close()
 
-                else:
-                    print('Unable to fetch properties.')
-                    exit(-1)
-                groupCount += 1
-            #Awesome, we are done autiting the behavior
-            # Merge CSV files into XLSX
-            xlsx_file = file_name.replace('csv','xlsx')
-            workbook = Workbook(os.path.join(xlsx_file))
-            worksheet = workbook.add_worksheet(behavior)
-            with open(os.path.join(file_name), 'rt', encoding='utf8') as f:
-                reader = csv.reader(f)
-                for r, row in enumerate(reader):
-                    for c, col in enumerate(row):
-                        worksheet.write(r, c, col)
-            workbook.close()
+                print('\nSuccess: File written to ' + xlsx_file)
+                # os.remove(os.path.join(file_name))
 
-            print('\nSuccess: File written to ' + xlsx_file)
-            #os.remove(os.path.join(file_name))
-
+            else:
+                print('No groups found in contract.')
+                exit(-1)
         else:
-            print('No groups found in contract.')
-            exit(-1)
-    else:
-        print('Unable to fetch group information')
+            print('Unable to fetch group information')
+
 
 def list(args):
     access_hostname, session = init_config(args.edgerc, args.section)
     account_switch_key = args.account_key
 
     if args.productId:
-        productId =  args.productId
+        productId = args.productId
         if productId not in product_list:
             print('--productId should be one of: ' + str(product_list))
             exit(-1)
         else:
-            #valid product
+            # valid product
             pass
     else:
         print('--productId is mandatory and should be one of ' + str(product_list))
@@ -473,12 +478,13 @@ def list(args):
     papiObject = papiWrapper.papi(access_hostname, account_switch_key)
     schema_response = papiObject.getSchema(session, productId=productId)
 
-    #if schema_response.status_code == 200:
+    # if schema_response.status_code == 200:
     behavior_definitions = schema_response.json()['definitions']['behavior']['allOf']
     for each_dict in behavior_definitions:
         if 'properties' in each_dict:
             behavior_properties = each_dict['properties']['name']['enum']
-    print(json.dumps(behavior_properties, indent=4))
+    #print(json.dumps(behavior_properties, indent=4))
+
 
 
 def get_prog_name():

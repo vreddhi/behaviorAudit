@@ -101,47 +101,65 @@ def cli():
     if len(sys.argv) == 1:
         prog += " [command]"
 
+    parent_parser = argparse.ArgumentParser(add_help=False)
+    parent_parser.add_argument("--edgerc",
+                               default=os.path.join(os.path.expanduser("~"), '.edgerc'),
+                               help="Location of the credentials file [$AKAMAI_EDGERC]",)
+
+    parent_parser.add_argument("--section",
+                               default="papi",
+                               help="Section of the credentials file [$AKAMAI_EDGERC_SECTION]")
+
+    parent_parser.add_argument("--debug",
+                               action="store_true",
+                               help="DEBUG mode to generate additional logs for troubleshooting")
+
+    parent_parser.add_argument("--account-key",
+                               default="",
+                               help="Account Switch Key")
+
     parser = argparse.ArgumentParser(
         description='Akamai CLI for Phased Release Cloudlet',
         add_help=False,
         prog=prog)
-    parser.add_argument(
-        '--version',
-        action='version',
-        version='%(prog)s ' +
-                PACKAGE_VERSION)
+    parser.add_argument('--version',
+                        action='version',
+                        version='%(prog)s ' + PACKAGE_VERSION)
 
-    subparsers = parser.add_subparsers(
-        title='Commands', dest="command", metavar="")
+    subparsers = parser.add_subparsers(title='Commands', dest="command", metavar="")
+
+    help_parser = subparsers.add_parser(name="help",
+                                        help="Show available help",
+                                        add_help=False)
+    help_parser.add_argument('args',
+                             metavar="",
+                             nargs=argparse.REMAINDER)
 
     actions = {}
 
-    subparsers.add_parser(
-        name="help",
-        help="Show available help",
-        add_help=False).add_argument(
-            'args',
-            metavar="",
-            nargs=argparse.REMAINDER)
+    audit_parser = subparsers.add_parser(name="audit", parents=[parent_parser],
+                                         help="Audit for beahviors in a group/contract")
+    audit_parser.add_argument("--contractId", required=True,
+                              help="ContractID to be used in API calls")
+    audit_parser.add_argument("--productId", required=True,
+                              help="productId to be used in API calls")
+    audit_parser.add_argument("--behavior",
+                              help="Name of behavior to audit")
+    audit_parser.add_argument("--version", choices=['production', 'staging', 'latest'],
+                              default='production',
+                              help="Config version to audit")
+    audit_parser.add_argument("--includeMissing",
+                              action="store_true",
+                              help="Config version to audit")
+    audit_parser.set_defaults(func=audit)
+    actions["audit"] = audit_parser
 
-    actions["audit"] = create_sub_command(
-        subparsers,
-        "audit", "Audit for beahviors in a group/contract",
-        [
-            {"name": "contractId", "help": "ContractID to be used in API calls"},
-            {"name": "productId", "help": "productId to be used in API calls"}
-        ],
-        [
-            {"name": "behavior", "help": "Name of behavior to audit"}
-        ])
-
-    actions["list"] = create_sub_command(
-        subparsers,
-        "list", "Lists all behaviors",
-        [
-            {"name": "productId", "help": "productId to be used in API calls"}
-        ],
-        [])
+    list_parser = subparsers.add_parser(name="list", parents=[parent_parser],
+                                        help="Lists all behaviors")
+    list_parser.add_argument("--productId", required=True,
+                             help="productId to be used in API calls")
+    list_parser.set_defaults(func=list)
+    actions["list"] = list_parser
 
     args = parser.parse_args()
 
@@ -158,80 +176,85 @@ def cli():
             parser.print_help()
         return 0
 
-    return getattr(sys.modules[__name__], args.command.replace("-", "_"))(args)
-
-
-def create_sub_command(
-        subparsers,
-        name,
-        help,
-        optional_arguments=None,
-        required_arguments=None):
-    action = subparsers.add_parser(name=name, help=help, add_help=False)
-
-    if required_arguments:
-        required = action.add_argument_group("required arguments")
-        for arg in required_arguments:
-            name = arg["name"]
-            del arg["name"]
-            required.add_argument("--" + name,
-                                  required=True,
-                                  **arg,
-                                  )
-
-    optional = action.add_argument_group("optional arguments")
-    if optional_arguments:
-        for arg in optional_arguments:
-            name = arg["name"]
-            del arg["name"]
-            optional.add_argument("--" + name,
-                                  required=False,
-                                  **arg,
-                                  )
-
-    optional.add_argument(
-        "--edgerc",
-        help="Location of the credentials file [$AKAMAI_EDGERC]",
-        default=os.path.join(
-            os.path.expanduser("~"),
-            '.edgerc'))
-
-    optional.add_argument(
-        "--section",
-        help="Section of the credentials file [$AKAMAI_EDGERC_SECTION]",
-        default="papi")
-
-    optional.add_argument(
-        "--debug",
-        help="DEBUG mode to generate additional logs for troubleshooting",
-        action="store_true")
-
-    optional.add_argument(
-        "--account-key",
-        help="Account Switch Key",
-        default="")
-
-    return action
-
+    return args.func(args)
 
 product_list = ['']
 options_to_be_removed = ['uuid', 'templateUuid', 'locked', 'options']
 path = []
 title_line_list = []
 
+
+
+def criteriaString(rule, parentCriteria):
+    if "criteria" not in rule:
+        return parentCriteria
+
+    criteria=rule["criteria"]
+    satisfy = rule["criteriaMustSatisfy"]
+
+    operator=" <UNKNOWN_OPERATOR> "
+    if satisfy == "all":
+        operator = " AND "
+    if satisfy == "any":
+        operator = " OR "
+
+    criteriaStrings = []
+    for criterion in criteria:
+        criterionName = criterion["name"]
+        criterionOptions = criterion["options"]
+
+        criterionMatchOperator = None
+        if "matchOperator" in criterionOptions:
+            criterionMatchOperator = criterionOptions['matchOperator']
+
+        criterionValue = None
+
+        if "value" in criterionOptions:
+            criterionValue = criterionOptions['value']
+        elif "values" in criterionOptions:
+            criterionValue = str(criterionOptions['values'])
+        elif "countryValues" in criterionOptions:
+            criterionValue = str(criterionOptions['countryValues'])
+        elif "continentValues" in criterionOptions:
+            criterionValue = str(criterionOptions['continentValues'])
+        elif "regionValues" in criterionOptions:
+            criterionValue = str(criterionOptions['regionValues'])
+
+        if criterionName == "matchVariable":
+            criterionName = criterionName + ":" + criterionOptions['variableName']
+            if "variableExpression" in criterionOptions:
+                criterionValue = criterionOptions['variableExpression']
+        elif criterionName == "queryStringParameter":
+            criterionName = criterionName + ":" + criterionOptions['parameterName']
+
+        if criterionMatchOperator in ["EXISTS", "DOES_NOT_EXIST"]:
+            criterionValue = ""
+
+        criteriaStrings.append("%s %s %s" % (criterionName, criterionMatchOperator, criterionValue))
+
+
+    ruleCriteria = (operator).join(criteriaStrings)
+    if parentCriteria and ruleCriteria:
+        return "(%s) AND (%s)" % (parentCriteria, ruleCriteria)
+    else:
+        return parentCriteria or ruleCriteria
+
 # Function to recursively parse the rules
+def doAuditBehavior(rules, behavior, propertyName, version, csvFile, parentCriteria=None):
+    foundBehaviorCount = 0
+    for rule in rules:
+        rule_name = rule['name']
 
+        criteria = criteriaString(rule, parentCriteria)
 
-def doAuditBehavior(parentRule, behavior, propertyName, version, csvFile):
-    for eachRule in parentRule:
-        rule_name = eachRule['name']
-        for eachbehavior in eachRule['behaviors']:
+        for eachbehavior in rule['behaviors']:
             if eachbehavior['name'] in behavior:
                 #print(json.dumps(eachbehavior, indent=4))
                 row = {
                     'Property_Name': propertyName,
                     'Property_Version': str(version),
-                    'Rule_name': rule_name
+                    'Rule_name': rule_name,
+                    'Rule_criteria': criteria
                 }
                 for eachTitle in title_line_list:
                     feature = eachbehavior['options']
@@ -247,16 +270,12 @@ def doAuditBehavior(parentRule, behavior, propertyName, version, csvFile):
 
                     row[eachTitle]=str(feature)
 
-                # write the content to file
                 csvFile.writerow(row)
+                foundBehaviorCount = foundBehaviorCount + 1
 
-            else:
-                # Behavior did not match
-                pass
-
-        # Check whether we have child rules, where in again behavior might be found
-        if len(eachRule['children']) != 0:
-            doAuditBehavior(eachRule['children'], behavior, propertyName, version, csvFile)
+        childFoundBehaviorCount = doAuditBehavior(rule['children'], behavior, propertyName, version, csvFile, criteria)
+        foundBehaviorCount = foundBehaviorCount + childFoundBehaviorCount
+    return foundBehaviorCount
 
 
 def computeAllBehaviorOptions(schema_response, behaviorData, final_obj):
@@ -310,6 +329,8 @@ def audit(args):
     access_hostname, session = init_config(args.edgerc, args.section)
     account_switch_key = args.account_key
     behavior = args.behavior
+    versionType = args.version
+    includeMissing = args.includeMissing
 
     if args.productId:
         productId = args.productId
@@ -352,7 +373,7 @@ def audit(args):
 
     file_name = behavior + '_Audit.csv'
     with open(file_name, "w", newline='') as audit_file:
-        fields = ['Property_Name', 'Property_Version', 'Rule_name']
+        fields = ['Property_Name', 'Property_Version', 'Rule_name', 'Rule_criteria']
         fields.extend(title_line_list)
         csvWriter = csv.DictWriter(audit_file, dialect='excel', fieldnames=fields)
         csvWriter.writeheader()
@@ -378,85 +399,83 @@ def audit(args):
 
         # Get all the properties of a contract
         group_response = papiObject.getGroups(session)
-        if group_response.status_code == 200:
-            # Constitute an array of groupIds for the contract
-            groupIdList = []
-            for everyGroup in group_response.json()['groups']['items']:
-                contractIds = everyGroup['contractIds']
-                for everycontract in contractIds:
-                    if everycontract == contractId:
-                        groupId = everyGroup['groupId']
-                        groupIdList.append(groupId)
-            # Dictionary to track properties processed
-            track_properties = {}
-            if len(groupIdList) != 0:
-                totalGroups = len(groupIdList)
-                print('Found ' + str(totalGroups) + ' total groups.')
-                # List all the properties in the group
-                groupCount = 1
-                for groupId in groupIdList:
-                    print('\nProcessing Group: ' + groupId +
-                          ' (' + str(groupCount) + ' of ' + str(totalGroups) + ' groups)')
-                    properties_response = papiObject.getAllProperties(session, contractId, groupId)
-                    if properties_response.status_code == 200:
-                        total_number_of_properties = len(
-                            properties_response.json()['properties']['items'])
-                        for eachProperty in properties_response.json()['properties']['items']:
-                            propertyId = eachProperty['propertyId']
-                            propertyName = str(eachProperty['propertyName'])
+        if group_response.status_code != 200:
+            print('Unable to fetch list of groups')
+            exit(1)
+        else:
+            groups = {}
+            properties = {}
+            #print (group_response.json())
+            for group in group_response.json()['groups']['items']:
+                groupId = group['groupId']
+                groupName = group['groupName']
+                contractIds = group['contractIds']
+                if contractId in contractIds:
+                    groups[groupId] = {'name': groupName}
 
-                            total_number_of_properties -= 1
-                            version = eachProperty['productionVersion']
-                            print (eachProperty)
-                            if version is not None:
-                                print('Property: ' + propertyName)
-                                # Fetch property rules
-                                if propertyId not in track_properties:
-                                    rule_tree_response = papiObject.getPropertyRules(
-                                        session, propertyId, contractId, groupId, version)
-                                    if rule_tree_response.status_code == 200:
-                                        track_properties[propertyId] = True
-                                        parentRule = [rule_tree_response.json()['rules']]
-                                        doAuditBehavior(parentRule, behavior, propertyName, version, csvWriter)
-                                    else:
-                                        print('Unable to fetch rule tree for: ' +
-                                              str(eachProperty['propertyName']))
 
-                                else:
-                                    # Property is already processed
-                                    print(propertyName + ' is already processed as part of other group')
-
-                            else:
-                                print('Property: ' + eachProperty['propertyName'] +
-                                      ' (SKIPPING: No production version found)')
-
-                            # if total_number_of_properties > 0:
-                            #    print(str(total_number_of_properties) + ' more properties to be processed in group ' + str(groupId))
-
-                    else:
-                        print('Unable to fetch properties.')
-                        exit(-1)
-                    groupCount += 1
-                # Awesome, we are done autiting the behavior
-                # Merge CSV files into XLSX
-                xlsx_file = file_name.replace('csv', 'xlsx')
-                workbook = Workbook(os.path.join(xlsx_file))
-                worksheet = workbook.add_worksheet(behavior)
-                with open(os.path.join(file_name), 'rt', encoding='utf8') as f:
-                    reader = csv.reader(f, dialect='excel')
-                    for r, row in enumerate(reader):
-                        for c, col in enumerate(row):
-                            worksheet.write(r, c, col)
-                workbook.close()
-
-                print('\nSuccess: File written to ' + xlsx_file)
-                # os.remove(os.path.join(file_name))
-
-            else:
+            if len(groups) == 0:
                 print('No groups found in contract.')
                 exit(-1)
-        else:
-            print('Unable to fetch group information')
+            else:
+                totalGroups = len(groups)
+                print('Found ' + str(totalGroups) + ' total groups.')
+                for currGroupIndex, (groupId, group) in enumerate(groups.items()):
+                    print('Processing Group %i/%i: %s: "%s" ' % (currGroupIndex + 1, totalGroups, groupId, group['name']))
+                    properties_response = papiObject.getAllProperties(session, contractId, groupId)
+                    if properties_response.status_code == 200:
+                        properties_response = properties_response.json()
+                        properties_in_group = properties_response['properties']['items']
+                        print('\tFound %i properties in group %s' % (len(properties_in_group), groupId))
+
+                        for eachProperty in properties_response['properties']['items']:
+                            #print (eachProperty)
+                            propertyId = eachProperty['propertyId']
+                            propertyName = str(eachProperty['propertyName'])
+                            propertyVersion = eachProperty[versionType + 'Version']
+                            if propertyVersion is not None:
+                                print('\t\tProperty %s: v%i' % (propertyName, propertyVersion))
+                                properties[propertyId] = {
+                                    'name': propertyName,
+                                    'version': propertyVersion,
+                                    'groupId': groupId
+                                }
+                            else:
+                                print('\t\tProperty %s: (SKIPPING: No %s version found)' % (propertyName, versionType))
+            propertyCount = len(properties)
+            print('Found %i properties' % (propertyCount))
+            for currPropertyIndex, (propertyId, property) in enumerate(properties.items()):
+                print ('Processing property %i/%i: %s' % (currPropertyIndex + 1, propertyCount, property['name']))
+                rule_tree_response = papiObject.getPropertyRules(
+                    session, propertyId, contractId, property['groupId'], property['version'])
+                if rule_tree_response.status_code == 200:
+                    parentRule = [rule_tree_response.json()['rules']]
+                    foundBehaviors = doAuditBehavior(parentRule, behavior, property['name'], property['version'], csvWriter)
+                    print ('\tFound %i matching behaviors' % foundBehaviors)
+                    if (includeMissing and foundBehaviors == 0):
+                        csvWriter.writerow({
+                            'Property_Name': property['name'],
+                            'Property_Version': property['version'],
+                            'Rule_name': 'BEHAVIOR NOT FOUND IN PROPERTY'
+                        })
+                else:
+                    print('Unable to fetch rule tree for: ' +
+                          str(eachProperty['propertyName']))
+
+            # Awesome, we are done autiting the behavior
+            # Merge CSV files into XLSX
+            xlsx_file = file_name.replace('csv', 'xlsx')
+            workbook = Workbook(os.path.join(xlsx_file))
+            worksheet = workbook.add_worksheet(behavior)
+            with open(os.path.join(file_name), 'rt', encoding='utf8') as f:
+                reader = csv.reader(f, dialect='excel')
+                for r, row in enumerate(reader):
+                    for c, col in enumerate(row):
+                        worksheet.write(r, c, col)
+            workbook.close()
+
+            print('\nSuccess: File written to ' + xlsx_file)
+            # os.remove(os.path.join(file_name))
 
 
 def list(args):
@@ -484,7 +503,6 @@ def list(args):
         if 'properties' in each_dict:
             behavior_properties = each_dict['properties']['name']['enum']
     #print(json.dumps(behavior_properties, indent=4))
-
 
 
 def get_prog_name():

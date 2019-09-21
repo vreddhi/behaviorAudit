@@ -31,8 +31,8 @@ Lists each property and behavior details, and outputs to a .xslx file. (Note: Do
 ```bash
 %  python3 behavior_audit.py audit --behavior <behavior_name> --productId <productId> --contractId <contractId>
 %  python3 behavior_audit.py audit --behavior <behavior_name> --productId <productId> --contractId <contractId> --account-key <account_key>
-%  python3 behavior_audit.py audit --behavior siteShield --productId prd_SPM --contractId ctr_1-28TBWN --account-key 1-1CES
 %  python3 behavior_audit.py audit --behavior origin --productId prd_SPM --contractId ctr_1-28TBWN --account-key 1-1CES
+%  python3 behavior_audit.py audit --behavior siteShield --productId prd_SPM --contractId ctr_1-28TBWN --account-key 1-1CES --includeMissing
 ```
 
 (Note: Unfortunately productId is not part of property or not exposed, so you have to find out the productId is known for the specified contract.)

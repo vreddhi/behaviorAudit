@@ -37,6 +37,29 @@ Lists each property and behavior details, and outputs to a .xslx file. (Note: Do
 
 (Note: Unfortunately productId is not part of property or not exposed, so you have to find out the productId is known for the specified contract.)
 
+```bash
+Example: Web Performance Products
+Dynamic Site Accelerator = "prd_Site_Accel"
+Ion Standard = "prd_Fresca"
+Ion Premier = "prd_SPM"
+IoT Edge Connect = "prd_IoT"
+Web Security Products
+Kona Site Defender = "prd_Site_Defender"
+Legacy Web Products
+Dynamic Site Delivery = "prd_Site_Del"
+Rich Media Accelerator = "prd_Rich_Media_Accel"
+Web Application Accelerator = "prd_Web_App_Accel"
+Terra Alta = "prd_Alta"
+Media Products
+Object Delivery = "prd_Obj_Delivery"
+Download Delivery = "prd_Download_Delivery"
+Adaptive Media Delivery = "prd_Adaptive_Media_Delivery"
+Legacy Media Products
+Object Caching = "prd_Obj_Caching"
+Progressive Media Downloads = "prd_Progressive_Media"
+HTTP Downloads = "prd_HTTP_Downloads"
+```
+
 ### Misc
 
 **Get contract ids:**
